@@ -1,0 +1,10 @@
+#!/bin/bash
+
+export PYTHONDONTWRITEBYTECODE=1
+export TASK_LOCAL_DIR=.local
+export TASK_VENV_DIR=$TASK_LOCAL_DIR/venv
+export TASK_CACHE_DIR=$TASK_LOCAL_DIR/cache
+
+mkdir -p $TASK_CACHE_DIR
+
+python -m __task__ $@

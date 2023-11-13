@@ -1,0 +1,21 @@
+version: "3.9"
+name: tasks
+
+services:
+  caddy:
+    image: lucaslorentz/caddy-docker-proxy:ci-alpine
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # this volume is needed to keep the certificates
+      # otherwise, new ones will be re-issued upon restart
+      - caddy_data:/data
+    labels:
+      caddy: http://caddy.fbi.com
+      caddy.respond: / "Hello World" 200
+    restart: unless-stopped
+
+volumes:
+  caddy_data: {}
