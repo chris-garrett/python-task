@@ -7,4 +7,4 @@ export TASK_CACHE_DIR=$TASK_LOCAL_DIR/cache
 
 mkdir -p $TASK_CACHE_DIR
 
-python -m __task__ $@
+python3 -m __task__ $@
