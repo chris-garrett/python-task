@@ -1,9 +1,11 @@
 #
+# Dec 02 2023
+# * add support for task dependencies
+#
 # Nov 13 2023
 # * initial cut of a task runner
 #
 # TODO
-# * add dependency graph
 #
 
 import os
@@ -20,8 +22,10 @@ from argparse import ArgumentParser
 import subprocess
 from subprocess import CompletedProcess
 from typing import NamedTuple, Callable, List
+from collections import defaultdict
 import importlib.machinery
 import inspect
+
 
 env_files = [
     ".env.defaults",
@@ -97,6 +101,7 @@ class TaskDefinition(NamedTuple):
     name: str
     filename: str
     dir: str
+    deps: list[str] = []
 
 
 class TaskBuilder(object):
@@ -107,7 +112,7 @@ class TaskBuilder(object):
     def use_python(self, python_exe):
         self.python_exe = python_exe
 
-    def add_task(self, module: str, name: str, func: callable) -> None:
+    def add_task(self, module: str, name: str, func: callable, deps: list[str] = []) -> None:
         """
         Add a task to the list of parsers.
 
@@ -115,8 +120,11 @@ class TaskBuilder(object):
         - module (str): The name of the module containing the task.
         - name (str): The name of the task.
         - func (callable): The function that implements the task.
+        - deps (list[str]): A list of task names that this task depends on.
         """
-        self.parsers.append((module, name, func))
+        if not isinstance(deps, list):
+            raise TypeError(f"deps must be a list, got {type(deps)}")
+        self.parsers.append((module, name, func, deps))
 
 
 def _build_env(env, venv_dir):
@@ -175,8 +183,10 @@ def _load_tasks(task: TaskFileDefinition) -> typing.Dict[str, TaskDefinition]:
     tasks: typing.Dict[str, TaskDefinition] = {}
     builder = TaskBuilder()
     task.func(builder)
-    for module, name, func in builder.parsers:
-        tasks[name] = TaskDefinition(module=module, name=name, func=func, dir=task.dir, filename=task.filename)
+    for module, name, func, deps in builder.parsers:
+        tasks[name] = TaskDefinition(
+            module=module, name=name, func=func, dir=task.dir, filename=task.filename, deps=deps
+        )
     return tasks
 
 
@@ -269,6 +279,35 @@ options:
     )
 
 
+def _resolve_deps(tasks_to_resolve, tasks):
+    # Convert list of tasks to a dictionary for easy access
+    task_dict = {list(task.keys())[0]: list(task.values())[0] for task in tasks}
+
+    resolved = []  # List to store the resolved order of tasks
+    visited = set()  # Set to keep track of visited tasks to detect circular dependencies
+
+    def dfs(task):
+        if task in resolved:  # If already resolved, no need to proceed
+            return
+        if task in visited:  # Circular dependency detected
+            raise ValueError("Circular dependency detected")
+        visited.add(task)
+
+        # Resolve dependencies first
+        for dep in task_dict.get(task, {}).get("deps", []):
+            if dep not in resolved:
+                dfs(dep)
+
+        visited.remove(task)  # Remove from visited as we are done with this task
+        resolved.append(task)  # Add to resolved list
+
+    for task in tasks_to_resolve:
+        if task not in resolved:
+            dfs(task)
+
+    return resolved
+
+
 def _process_tasks():
     # need to boostrap this arg so that we can enable debug logging at
     # configure time
@@ -302,8 +341,20 @@ def _process_tasks():
             _print_help(tasks.keys())
             return
 
+    # build a list of tasks and dependencies to pass to the resolver
+    # result should be:
+    # [
+    #   {
+    #       "task_name": {
+    #           "deps": ["dep1", "dep2"]
+    #       }
+    #   },
+    # ]
+    tasks_with_deps = [{k: {"deps": v.deps}} for k, v in tasks.items()]
+    resolved_tasks = _resolve_deps(args.tasks, tasks_with_deps)
+
     # runtime
-    for task_name in args.tasks:
+    for task_name in resolved_tasks:
         if task_name in tasks:
             task = tasks[task_name]
             try:
