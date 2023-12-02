@@ -47,23 +47,23 @@ logger = logging.getLogger("task")
 
 
 def load_dotenv(filename):
-    rxEnv = re.compile(r"(\${?(\w+)}?)")
-    if os.path.exists(filename):
-        with open(filename) as f:
-            for line in f.readlines():
-                line = line.strip()
-                if line.startswith("#"):
-                    continue
-                if "=" not in line:
-                    continue
-                k, v = line.split("=", 1)
-                # look for environtment variables to expand
-                found = re.search(rxEnv, v)
-                if found:
-                    env = found.group(2)
-                    if env in os.environ:
-                        v = v.replace(found.group(1), os.environ[env])
-                os.environ[k] = v
+    rx_env = re.compile(r"(\${?(\w+)}?)")
+    if not os.path.exists(filename):
+        return
+
+    with open(filename) as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith("#") or "=" not in line:
+                continue
+
+            k, v = line.split("=", 1)
+            match = re.search(rx_env, v)
+
+            if match and (env := match.group(2)) in os.environ:
+                v = v.replace(match.group(1), os.environ[env])
+
+            os.environ[k] = v
 
 
 for env in env_files:
