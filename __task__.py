@@ -13,6 +13,7 @@ import glob
 import shlex
 import typing
 import logging
+import platform
 from logging import Logger
 import argparse
 from argparse import ArgumentParser
@@ -70,11 +71,18 @@ for env in env_files:
     load_dotenv(os.path.abspath(os.path.join(os.path.dirname(__file__), env)))
 
 
+class SystemContext(NamedTuple):
+    platform: str  # Linux, Darwin, Windows
+    arch: str  # x86_64, arm64
+    distro: str  # Debian, Arch, RHEL
+
+
 class TaskContext(NamedTuple):
     root_dir: str
     project_dir: str
     log: Logger
     exec: Callable[[str, [str | None], [Logger | None], [str | None]], CompletedProcess[str]]
+    system: SystemContext
 
 
 class TaskFileDefinition(NamedTuple):
@@ -210,6 +218,26 @@ def _find_task_files() -> List[str]:
     return [f for f in glob.glob("**/__task__.py", recursive=True) if os.path.isfile(f) and f != "__task__.py"]
 
 
+def _build_system_context() -> SystemContext:
+    """
+    Builds a context object for the system.
+    """
+
+    distro = ""
+    if platform.system() == "Linux" and os.path.exists("/etc/os-release"):
+        with open("/etc/os-release") as f:
+            for line in f:
+                if line.startswith("ID="):
+                    distro = line.split("=")[1].strip()
+                    break
+
+    return SystemContext(
+        platform=platform.system().lower(),
+        arch=platform.machine().lower(),
+        distro=distro.lower(),
+    )
+
+
 def _build_task_context(task: TaskDefinition) -> TaskContext:
     """
     Builds a context object for a task.
@@ -219,6 +247,7 @@ def _build_task_context(task: TaskDefinition) -> TaskContext:
         project_dir=task.dir,
         log=logging.getLogger(task.module),
         exec=exec,
+        system=_build_system_context(),
     )
 
 
