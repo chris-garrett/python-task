@@ -1,5 +1,6 @@
 #!/bin/bash
 
+export LOG_LEVEL=DEBUG
 export PYTHONDONTWRITEBYTECODE=1
 export TASK_LOCAL_DIR=.local
 export TASK_VENV_DIR=$TASK_LOCAL_DIR/venv

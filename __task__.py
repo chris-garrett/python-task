@@ -1,4 +1,11 @@
 #
+# Dec 03 2023
+# * added quiet option to exec(). This will capture stdout and stderr and will be available
+#   in the CompletedProcess object.
+#   example:
+#    (args=['pwd'], returncode=0, stdout='/home/chris\n', stderr='') = ctx.exec("pwd", quiet=True)
+# * log level can be specified via LOG_LEVEL env var. see ./task. Valid values are: TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL.
+#
 # Dec 02 2023
 # * add support for task dependencies
 #
@@ -6,7 +13,8 @@
 # * initial cut of a task runner
 #
 # TODO
-#
+# * add the abililty to call depenencies with arguments.
+# * add support for file depenencies. see go-task for inspiration: https://taskfile.dev/usage/#prevent-unnecessary-work
 
 import os
 import re
@@ -18,11 +26,10 @@ import logging
 import platform
 from logging import Logger
 import argparse
-from argparse import ArgumentParser
 import subprocess
 from subprocess import CompletedProcess
-from typing import NamedTuple, Callable, List
-from collections import defaultdict
+from dataclasses import dataclass
+from typing import NamedTuple, Callable, List, Protocol, runtime_checkable
 import importlib.machinery
 import inspect
 
@@ -38,17 +45,6 @@ env_files = [
 def trace(self, message, *args, **kws):
     if self.isEnabledFor(TRACE_LEVEL):
         self._log(TRACE_LEVEL, message, args, **kws)
-
-
-TRACE_LEVEL = 5
-logging.addLevelName(TRACE_LEVEL, "TRACE")
-logging.Logger.trace = trace
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
-logger = logging.getLogger("task")
 
 
 def load_dotenv(filename):
@@ -75,18 +71,55 @@ for env in env_files:
     load_dotenv(os.path.abspath(os.path.join(os.path.dirname(__file__), env)))
 
 
+TRACE_LEVEL = 5
+logging.addLevelName(TRACE_LEVEL, "TRACE")
+logging.Logger.trace = trace
+
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO"),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger("task")
+
+
+@runtime_checkable
+class ExecProtocol(Protocol):
+    def exec(self, cmd: str, quiet: bool = False) -> int:
+        raise NotImplementedError
+
+
 class SystemContext(NamedTuple):
     platform: str  # Linux, Darwin, Windows
     arch: str  # x86_64, arm64
     distro: str  # Debian, Arch, RHEL
 
 
-class TaskContext(NamedTuple):
+def exec(
+    cmd: str, cwd: str = None, logger: Logger = None, venv_dir: str = None, quiet: bool = False
+) -> CompletedProcess[str]:
+    args = [arg.strip() for arg in shlex.split(cmd.strip())]
+    if isinstance(logger, Logger):
+        logger.debug("Executing: [%s] Cwd: [%s]", " ".join(args), cwd)
+
+    return subprocess.run(
+        args,
+        check=False,
+        text=True,
+        cwd=cwd,
+        env=_build_env(os.environ, venv_dir) if venv_dir else os.environ,
+        capture_output=quiet,
+    )
+
+
+@dataclass
+class TaskContext(ExecProtocol):
     root_dir: str
     project_dir: str
     log: Logger
-    exec: Callable[[str, [str | None], [Logger | None], [str | None]], CompletedProcess[str]]
     system: SystemContext
+
+    def exec(self, cmd: str, cwd: str = None, venv_dir: str = None, quiet: bool = False) -> CompletedProcess[str]:
+        return exec(cmd, cwd, self.log, venv_dir, quiet)
 
 
 class TaskFileDefinition(NamedTuple):
@@ -154,20 +187,6 @@ def _build_env(env, venv_dir):
     old_env["VIRTUAL_ENV"] = new_venv
 
     return old_env
-
-
-def exec(cmd: str, cwd=None, logger: Logger = None, venv_dir: str = None) -> CompletedProcess[str]:
-    args = [arg.strip() for arg in shlex.split(cmd.strip())]
-    if isinstance(logger, Logger):
-        logger.debug("Executing: [%s] Cwd: [%s]", args, cwd)
-
-    return subprocess.run(
-        args,
-        check=False,
-        text=True,
-        cwd=cwd,
-        env=_build_env(os.environ, venv_dir) if venv_dir else os.environ,
-    )
 
 
 def _ensure_venv(ctx: TaskContext):
@@ -268,7 +287,6 @@ def _build_task_context(task: TaskDefinition) -> TaskContext:
         root_dir=os.path.abspath(os.path.dirname(__file__)),
         project_dir=task.dir,
         log=logging.getLogger(task.module),
-        exec=exec,
         system=_build_system_context(),
     )
 
@@ -321,6 +339,9 @@ def _resolve_deps(tasks_to_resolve, tasks):
 
 
 def _process_tasks():
+    logger.debug("Processing tasks")
+    logger.info("Processing tasks")
+
     # need to boostrap this arg so that we can enable debug logging at
     # configure time
     raw_args = sys.argv[1:]
