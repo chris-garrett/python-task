@@ -228,6 +228,21 @@ def _find_task_files() -> List[str]:
     return [f for f in glob.glob("**/__task__.py", recursive=True) if os.path.isfile(f) and f != "__task__.py"]
 
 
+def _build_system_distro(content: str) -> str:
+    """
+    Returns distro for os-release contents
+    """
+
+    id = ""
+    id_like = None
+    for line in content.split():
+        if line.startswith("ID_LIKE="):
+            id_like = line.split("=")[1].strip()
+        if line.startswith("ID="):
+            id = line.split("=")[1].strip()
+    return id_like if id_like else id
+
+
 def _build_system_context() -> SystemContext:
     """
     Builds a context object for the system.
@@ -236,10 +251,7 @@ def _build_system_context() -> SystemContext:
     distro = ""
     if platform.system() == "Linux" and os.path.exists("/etc/os-release"):
         with open("/etc/os-release") as f:
-            for line in f:
-                if line.startswith("ID="):
-                    distro = line.split("=")[1].strip()
-                    break
+            distro = _build_system_distro(f.read())
 
     return SystemContext(
         platform=platform.system().lower(),
