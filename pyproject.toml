@@ -1,3 +1,21 @@
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "python-task"
+version = "0.0.0"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "black",
+    "flake8",
+    "pyproject-flake8",
+    "ruff",
+]
+
 [tool.black]
 line-length = 120
 target-version = ["py38"]
