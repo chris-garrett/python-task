@@ -1,4 +1,7 @@
 #
+# Dec 05 2023
+# * fix: add exception handling to exec() calls. normalize returned object.
+#
 # Dec 03 2023
 # * added quiet option to exec(). This will capture stdout and stderr and will be available
 #   in the CompletedProcess object.
@@ -98,17 +101,23 @@ def exec(
     cmd: str, cwd: str = None, logger: Logger = None, venv_dir: str = None, quiet: bool = False
 ) -> CompletedProcess[str]:
     args = [arg.strip() for arg in shlex.split(cmd.strip())]
-    if isinstance(logger, Logger):
-        logger.debug("Executing: [%s] Cwd: [%s]", " ".join(args), cwd)
+    if isinstance(logger, Logger) and not quiet:
+        if cwd:
+            logger.debug("Executing: [%s] Cwd: [%s]", " ".join(args), cwd)
+        else:
+            logger.debug("Executing: [%s]", " ".join(args))
 
-    return subprocess.run(
-        args,
-        check=False,
-        text=True,
-        cwd=cwd,
-        env=_build_env(os.environ, venv_dir) if venv_dir else os.environ,
-        capture_output=quiet,
-    )
+    try:
+        return subprocess.run(
+            args,
+            check=False,
+            text=True,
+            cwd=cwd,
+            env=_build_env(os.environ, venv_dir) if venv_dir else os.environ,
+            capture_output=quiet,
+        )
+    except Exception as ex:
+        return CompletedProcess(args=args, returncode=1, stdout="", stderr=str(ex))
 
 
 @dataclass
@@ -339,7 +348,6 @@ def _resolve_deps(tasks_to_resolve, tasks):
 
 
 def _process_tasks():
-    logger.debug("Processing tasks")
     logger.info("Processing tasks")
 
     # need to boostrap this arg so that we can enable debug logging at
