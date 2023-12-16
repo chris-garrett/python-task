@@ -1,4 +1,8 @@
 #
+# Dec 16 2023
+# * fix/feat: fix bug in load_dotenv where keys were not trimmed and white space not leading to a match, add
+#             override to match python-dotenv behavior.
+#
 # Dec 05 2023
 # * fix: add exception handling to exec() calls. normalize returned object.
 #
@@ -20,7 +24,6 @@
 # * add support for file depenencies. see go-task for inspiration: https://taskfile.dev/usage/#prevent-unnecessary-work
 
 import os
-import re
 import sys
 import glob
 import shlex
@@ -38,40 +41,49 @@ import inspect
 
 
 env_files = [
-    ".env.defaults",
-    ".env.user",
-    ".env.local",
-    ".env",
+    {"file": ".env.defaults", "override": False},
+    {"file": ".env.secrets", "override": False},
+    {"file": ".env.user", "override": True},
+    {"file": ".env.local", "override": True},
+    {"file": ".env", "override": True},
 ]
 
 
-def trace(self, message, *args, **kws):
-    if self.isEnabledFor(TRACE_LEVEL):
-        self._log(TRACE_LEVEL, message, args, **kws)
+def load_dotenv(filename=".env", override=False):
+    """
+    Load environment variables from a .env file into the os.environ dictionary.
 
+    Args:
+    - filename (str, optional): The name of the .env file to load. Defaults to ".env".
+    - override (bool, optional): If True, existing environment variables will be overwritten
+      by those in the .env file. Defaults to False.
 
-def load_dotenv(filename):
-    rx_env = re.compile(r"(\${?(\w+)}?)")
+    Returns:
+    None
+    """
     if not os.path.exists(filename):
         return
-
     with open(filename) as f:
         for line in f:
             line = line.strip()
             if line.startswith("#") or "=" not in line:
                 continue
-
             k, v = line.split("=", 1)
-            match = re.search(rx_env, v)
-
-            if match and (env := match.group(2)) in os.environ:
-                v = v.replace(match.group(1), os.environ[env])
-
-            os.environ[k] = v
+            k = k.strip()
+            if k in os.environ and not override:
+                continue
+            if v is not None:
+                v = v.strip()
+                os.environ[k] = v
 
 
 for env in env_files:
-    load_dotenv(os.path.abspath(os.path.join(os.path.dirname(__file__), env)))
+    load_dotenv(os.path.abspath(os.path.join(os.path.dirname(__file__), env["file"])), env["override"])
+
+
+def trace(self, message, *args, **kws):
+    if self.isEnabledFor(TRACE_LEVEL):
+        self._log(TRACE_LEVEL, message, args, **kws)
 
 
 TRACE_LEVEL = 5
