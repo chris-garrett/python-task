@@ -28,6 +28,12 @@ def _restart(ctx: TaskContext):
     _up(ctx)
 
 
+def nothing_to_see_here(ctx: TaskContext):
+    import subprocess
+
+    subprocess.run(["ls", "-laFHh"])
+
+
 def configure(builder: TaskBuilder):
     module_name = "compose"
     builder.add_task(module_name, "up", _up)
