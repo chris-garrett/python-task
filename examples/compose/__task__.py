@@ -31,7 +31,7 @@ def _restart(ctx: TaskContext):
 def nothing_to_see_here(ctx: TaskContext):
     import subprocess
 
-    subprocess.run(["ls", "-la"])
+    subprocess.run(["ls", "-laFHh"])
 
 
 def configure(builder: TaskBuilder):
