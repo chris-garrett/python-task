@@ -29,7 +29,9 @@ def _restart(ctx: TaskContext):
 
 
 def nothing_to_see_here(ctx: TaskContext):
-    pass
+    import subprocess
+
+    subprocess.run(["ls", "-la"])
 
 
 def configure(builder: TaskBuilder):
