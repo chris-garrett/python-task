@@ -1,4 +1,9 @@
 #
+# Mar 04 2024
+# * chore: update to Python 3.9
+# * chore: add tests for load_dotenv
+# * feat: add environment variable expansion to load_dotenv
+#
 # Dec 16 2023
 # * fix/feat: fix bug in load_dotenv where keys were not trimmed and white space not leading to a match, add
 #             override to match python-dotenv behavior.
@@ -40,16 +45,7 @@ import importlib.machinery
 import inspect
 
 
-env_files = [
-    {"file": ".env.defaults", "override": False},
-    {"file": ".env.secrets", "override": False},
-    {"file": ".env.user", "override": True},
-    {"file": ".env.local", "override": True},
-    {"file": ".env", "override": True},
-]
-
-
-def load_dotenv(filename=".env", override=False):
+def load_dotenv(filename=".env", override=False, expand_vars=True):
     """
     Load environment variables from a .env file into the os.environ dictionary.
 
@@ -66,19 +62,27 @@ def load_dotenv(filename=".env", override=False):
     with open(filename) as f:
         for line in f:
             line = line.strip()
+
+            # skip comments and empty lines
             if line.startswith("#") or "=" not in line:
                 continue
+
             k, v = line.split("=", 1)
             k = k.strip()
+
+            # dont override existing env vars unless explicitly told to
             if k in os.environ and not override:
                 continue
+
+            # dont set null values
             if v is not None:
-                v = v.strip()
-                os.environ[k] = v
+                os.environ[k] = v.strip()
 
-
-for env in env_files:
-    load_dotenv(os.path.abspath(os.path.join(os.path.dirname(__file__), env["file"])), env["override"])
+    if expand_vars:
+        # expand any env vars
+        for k, v in os.environ.items():
+            if v.startswith("$"):
+                os.environ[k] = os.path.expandvars(v)
 
 
 def trace(self, message, *args, **kws):
@@ -420,4 +424,15 @@ def _process_tasks():
 
 
 if __name__ == "__main__":
+    env_files = [
+        {"file": ".env.defaults", "override": False},
+        {"file": ".env.secrets", "override": False},
+        {"file": ".env.user", "override": True},
+        {"file": ".env.local", "override": True},
+        {"file": ".env", "override": True},
+    ]
+
+    for env in env_files:
+        load_dotenv(os.path.abspath(os.path.join(os.path.dirname(__file__), env["file"])), env["override"])
+
     _process_tasks()
