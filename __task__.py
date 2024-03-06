@@ -11,7 +11,7 @@
 #   in the CompletedProcess object.
 #   example:
 #    (args=['pwd'], returncode=0, stdout='/home/chris\n', stderr='') = ctx.exec("pwd", quiet=True)
-# * log level can be specified via LOG_LEVEL env var. see ./task. Valid values are: TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL.
+# * log level can be specified via LOG_LEVEL env var. see ./task. Valid values are: TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL. # noqa
 #
 # Dec 02 2023
 # * add support for task dependencies
@@ -110,10 +110,10 @@ class SystemContext(NamedTuple):
 
 
 def exec(
-    cmd: str, cwd: str = None, logger: Logger = None, venv_dir: str = None, quiet: bool = False
+    cmd: str, cwd: str = None, logger: Logger = None, venv_dir: str = None, capture: bool = False, input: str = None
 ) -> CompletedProcess[str]:
     args = [arg.strip() for arg in shlex.split(cmd.strip())]
-    if isinstance(logger, Logger) and not quiet:
+    if isinstance(logger, Logger) and not capture:
         if cwd:
             logger.debug("Executing: [%s] Cwd: [%s]", " ".join(args), cwd)
         else:
@@ -126,7 +126,8 @@ def exec(
             text=True,
             cwd=cwd,
             env=_build_env(os.environ, venv_dir) if venv_dir else os.environ,
-            capture_output=quiet,
+            capture_output=capture,
+            input=input,
         )
     except Exception as ex:
         return CompletedProcess(args=args, returncode=1, stdout="", stderr=str(ex))
@@ -139,8 +140,10 @@ class TaskContext(ExecProtocol):
     log: Logger
     system: SystemContext
 
-    def exec(self, cmd: str, cwd: str = None, venv_dir: str = None, quiet: bool = False) -> CompletedProcess[str]:
-        return exec(cmd, cwd, self.log, venv_dir, quiet)
+    def exec(
+        self, cmd: str, cwd: str = None, venv_dir: str = None, capture: bool = False, input: str = None
+    ) -> CompletedProcess[str]:
+        return exec(cmd, cwd, self.log, venv_dir, capture, input)
 
 
 class TaskFileDefinition(NamedTuple):
@@ -155,7 +158,7 @@ class TaskDefinition(NamedTuple):
     name: str
     filename: str
     dir: str
-    deps: list[str] = []
+    deps: List[str] = []
 
 
 class TaskBuilder(object):
@@ -166,7 +169,7 @@ class TaskBuilder(object):
     def use_python(self, python_exe):
         self.python_exe = python_exe
 
-    def add_task(self, module: str, name: str, func: callable, deps: list[str] = []) -> None:
+    def add_task(self, module: str, name: str, func: callable, deps: List[str] = []) -> None:
         """
         Add a task to the list of parsers.
 
@@ -191,7 +194,7 @@ def _build_env(env, venv_dir):
     if "VIRTUAL_ENV" in old_env:
         old_venv = f"{old_env['VIRTUAL_ENV']}/bin:"
         # remove the old virtualenv path
-        old_path = old_env["PATH"][len(old_venv) :]
+        old_path = old_env["PATH"][len(old_venv) :]  # noqa
     else:
         old_path = old_env["PATH"]
 

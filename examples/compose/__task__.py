@@ -30,7 +30,7 @@ def _restart(ctx: TaskContext):
 
 def configure(builder: TaskBuilder):
     module_name = "compose"
-    builder.add_task(module_name, "up", _up)
-    builder.add_task(module_name, "down", _down)
-    builder.add_task(module_name, "log", _logs)
-    builder.add_task(module_name, "restart", _restart)
+    builder.add_task(module_name, f"{module_name}:up", _up)
+    builder.add_task(module_name, f"{module_name}:down", _down)
+    builder.add_task(module_name, f"{module_name}:log", _logs)
+    builder.add_task(module_name, f"{module_name}:restart", _restart)

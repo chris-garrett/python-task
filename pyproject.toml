@@ -8,17 +8,11 @@ name = "python-task"
 version = "0.0.0"
 
 [project.optional-dependencies]
-dev = [
-    "pytest",
-    "black",
-    "flake8",
-    "pyproject-flake8",
-    "ruff",
-]
+dev = ["pytest", "black", "flake8", "pyproject-flake8", "ruff"]
 
 [tool.black]
 line-length = 120
-target-version = ["py38"]
+target-version = ["py39"]
 
 [tool.flake8]
 max-line-length = 120
