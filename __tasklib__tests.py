@@ -1,5 +1,5 @@
 import unittest
-from __task__ import _resolve_deps, _build_system_distro
+from __tasklib__ import _resolve_deps, _build_system_distro
 
 
 class TestResolveDeps(unittest.TestCase):

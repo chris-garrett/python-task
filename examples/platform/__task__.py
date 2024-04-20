@@ -1,4 +1,4 @@
-from __task__ import TaskContext, TaskBuilder
+from __tasklib__ import TaskContext, TaskBuilder
 
 
 def _info(ctx: TaskContext):

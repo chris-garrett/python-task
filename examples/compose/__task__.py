@@ -1,5 +1,5 @@
 import os
-from __task__ import TaskContext, TaskBuilder
+from __tasklib__ import TaskContext, TaskBuilder
 
 
 def _prefix(ctx: TaskContext):

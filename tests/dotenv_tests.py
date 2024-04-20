@@ -2,7 +2,7 @@ import os
 import config  # noqa
 import pytest
 
-from __task__ import load_dotenv
+from __tasklib__ import load_dotenv
 
 
 def test_load_default_dotenv():
