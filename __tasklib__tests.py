@@ -1,5 +1,6 @@
 import unittest
-from __tasklib__ import _resolve_deps, _build_system_distro
+
+from __tasklib__ import _build_system_distro, _parse_task_args, _resolve_deps
 
 
 class TestResolveDeps(unittest.TestCase):
@@ -22,7 +23,8 @@ class TestResolveDeps(unittest.TestCase):
 
     def test_circular_dependencies(self):
         # Test when there are circular dependencies (should raise an error)
-        tasks = [{"task1": {"deps": ["task2"]}}, {"task2": {"deps": ["task1"]}}]
+        tasks = [{"task1": {"deps": ["task2"]}},
+                 {"task2": {"deps": ["task1"]}}]
         with self.assertRaises(ValueError):
             _resolve_deps(["task1", "task2"], tasks)
 
@@ -68,6 +70,34 @@ BUG_REPORT_URL="https://bugs.launchpad.net/ubuntu/"
 PRIVACY_POLICY_URL="https://www.ubuntu.com/legal/terms-and-policies/privacy-policy"
         """
         self.assertEqual(_build_system_distro(contents), "debian")
+
+
+class TestParseTaskArgs(unittest.TestCase):
+    def test_parse_no_arguments(self):
+        task_args = "task[]"
+        result = _parse_task_args(task_args)
+        self.assertEqual(result, {})
+
+    def test_parse_single_argument(self):
+        task_args = "task[arg1=value1]"
+        result = _parse_task_args(task_args)
+        self.assertEqual(result, {"arg1": "value1"})
+
+    def test_parse_multiple_arguments(self):
+        task_args = "task[arg1=value1, arg2=value2, arg3=value3]"
+        result = _parse_task_args(task_args)
+        self.assertEqual(
+            result, {"arg1": "value1", "arg2": "value2", "arg3": "value3"})
+
+    def test_parse_with_spaces(self):
+        task_args = "task[ arg1 = value1 , arg2 = value2 ]"
+        result = _parse_task_args(task_args)
+        self.assertEqual(result, {"arg1": "value1", "arg2": "value2"})
+
+    def test_parse_empty_argument(self):
+        task_args = "task[arg1=]"
+        result = _parse_task_args(task_args)
+        self.assertEqual(result, {"arg1": ""})
 
 
 if __name__ == "__main__":

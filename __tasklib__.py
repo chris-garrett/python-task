@@ -2,6 +2,15 @@
 # https://github.com/chris-garrett/python-task #
 ################################################
 #
+# May 11 2024
+# * feat: added support for task arguments. you can now:
+#         `./task hello[arg1=value1,arg2=2.0]`
+#
+#         in your task you can access the args via ctx.args
+#
+#         def _hello(ctx: TaskContext):
+#             ctx.log.info(f"Args: {ctx.args}")
+#
 # Apr 20 2024
 # * chore: support single file task projects
 #   * moved __task__.py to __tasklib__.py
@@ -41,16 +50,26 @@ import sys
 import glob
 import shlex
 import typing
+import importlib.machinery
+import inspect
 import logging
+import os
 import platform
 from logging import Logger
 import argparse
+import shlex
 import subprocess
+import sys
+import typing
+from dataclasses import dataclass, field
+from logging import Logger
 from subprocess import CompletedProcess
 from dataclasses import dataclass
 from typing import NamedTuple, Callable, List, Protocol, runtime_checkable
 import importlib.machinery
 import inspect
+from typing import (Any, Callable, Dict, List, NamedTuple, Protocol,
+                    runtime_checkable)
 
 
 def load_dotenv(filename=".env", override=False, expand_vars=True):
@@ -151,6 +170,7 @@ class TaskContext(ExecProtocol):
     project_dir: str
     log: Logger
     system: SystemContext
+    args: Dict[str, Any] = field(default_factory=dict)
 
     def exec(
         self, cmd: str, cwd: str = None, venv_dir: str = None, capture: bool = False, input: str = None
@@ -206,7 +226,7 @@ def _build_env(env, venv_dir):
     if "VIRTUAL_ENV" in old_env:
         old_venv = f"{old_env['VIRTUAL_ENV']}/bin:"
         # remove the old virtualenv path
-        old_path = old_env["PATH"][len(old_venv) :]  # noqa
+        old_path = old_env["PATH"][len(old_venv):]  # noqa
     else:
         old_path = old_env["PATH"]
 
@@ -255,13 +275,15 @@ def _load_task_definitions(task_files) -> List[TaskFileDefinition]:
         loader = importlib.machinery.SourceFileLoader(f"task{idx}", task_file)
         module = loader.load_module()
         if not hasattr(module, "configure"):
-            logger.trace(f"load task definition: {task_file}: no configure() found, skipping {task_file}")
+            logger.trace(
+                f"load task definition: {task_file}: no configure() found, skipping {task_file}")
             continue
 
         func = getattr(module, "configure")
         parameters = inspect.signature(func).parameters
         if "builder" not in parameters:
-            logger.trace(f"load task definition: {task_file}: no configure(builder) found, skipping {task_file}")
+            logger.trace(
+                f"load task definition: {task_file}: no configure(builder) found, skipping {task_file}")
             continue
 
         logger.trace(f"load task definition: {task_file}: loaded successfully")
@@ -330,7 +352,8 @@ def _build_task_context(task: TaskDefinition) -> TaskContext:
 def _print_help(available_tasks: List[str]):
     # do a lazy sort to put tasks with no colons first
     formatted_tasks = "".join(
-        [f"  {t}\n" for t in sorted(available_tasks, key=lambda x: (0 if x.count(":") == 0 else 1, x))]
+        [f"  {t}\n" for t in sorted(available_tasks, key=lambda x: (
+            0 if x.count(":") == 0 else 1, x))]
     )
     print(
         f"""usage: task [-h] [task ...]
@@ -347,7 +370,8 @@ options:
 
 def _resolve_deps(tasks_to_resolve, tasks):
     # Convert list of tasks to a dictionary for easy access
-    task_dict = {list(task.keys())[0]: list(task.values())[0] for task in tasks}
+    task_dict = {list(task.keys())[0]: list(
+        task.values())[0] for task in tasks}
 
     resolved = []  # List to store the resolved order of tasks
     visited = set()  # Set to keep track of visited tasks to detect circular dependencies
@@ -364,7 +388,8 @@ def _resolve_deps(tasks_to_resolve, tasks):
             if dep not in resolved:
                 dfs(dep)
 
-        visited.remove(task)  # Remove from visited as we are done with this task
+        # Remove from visited as we are done with this task
+        visited.remove(task)
         resolved.append(task)  # Add to resolved list
 
     for task in tasks_to_resolve:
@@ -372,6 +397,26 @@ def _resolve_deps(tasks_to_resolve, tasks):
             dfs(task)
 
     return resolved
+
+
+def _parse_task_args(task_args: str) -> Dict[str, Any]:
+    """
+    Parse task arguments from a string in the format name[arg1=val1,arg2=val2,...].
+
+    Args:
+    - task_args (str): The string containing the task arguments.
+
+    Returns:
+    A dictionary of argument names and values.
+    """
+    args = {}
+    args_str = task_args[task_args.find("[") + 1: task_args.rfind("]")]
+    for arg in args_str.split(","):
+        if len(arg) > 0:
+            key, value = arg.split("=")
+            args[key.strip()] = value.strip()
+
+    return args
 
 
 def _process_tasks():
@@ -385,7 +430,8 @@ def _process_tasks():
 
     task_files = _find_task_files()
     task_defs = _load_task_definitions(task_files)
-    tasks: typing.Dict[str, TaskDefinition] = {}  # { 'task_name': TaskDefinition }
+    # { 'task_name': TaskDefinition }
+    tasks: typing.Dict[str, TaskDefinition] = {}
 
     parser = argparse.ArgumentParser(description="task", add_help=False)
     parser.add_argument("tasks", nargs="*")
@@ -398,12 +444,25 @@ def _process_tasks():
 
     args = parser.parse_args()
 
-    if len(args.tasks) == 0 or args.help:
+    # Split tasks and their arguments
+    tasks_with_args = {}
+    for task_arg in args.tasks:
+        if "[" in task_arg and "]" in task_arg:
+            task_name, task_args = task_arg.split("[", 1)
+            task_args = "[" + task_args
+            tasks_with_args[task_name] = _parse_task_args(task_args)
+        else:
+            tasks_with_args[task_arg] = {}
+
+    task_names = list(tasks_with_args.keys())
+
+    if len(task_names) == 0 or args.help:
         _print_help(tasks.keys())
         return
 
+
     # validate tasks
-    for task_name in args.tasks:
+    for task_name in task_names:
         if task_name not in tasks:
             logger.error("Unknown task: %s", task_name)
             _print_help(tasks.keys())
@@ -419,14 +478,16 @@ def _process_tasks():
     #   },
     # ]
     tasks_with_deps = [{k: {"deps": v.deps}} for k, v in tasks.items()]
-    resolved_tasks = _resolve_deps(args.tasks, tasks_with_deps)
+    resolved_tasks = _resolve_deps(task_names, tasks_with_deps)
 
     # runtime
     for task_name in resolved_tasks:
         if task_name in tasks:
             task = tasks[task_name]
             try:
-                task.func(_build_task_context(task))
+                task_context = _build_task_context(task)
+                task_context.args = tasks_with_args.get(task_name, {})
+                task.func(task_context)
             except KeyboardInterrupt:
                 pass
 
@@ -441,6 +502,8 @@ if __name__ == "__main__":
     ]
 
     for env in env_files:
-        load_dotenv(os.path.abspath(os.path.join(os.path.dirname(__file__), env["file"])), env["override"])
+        load_dotenv(os.path.abspath(os.path.join(
+            os.path.dirname(__file__), env["file"])), env["override"])
 
     _process_tasks()
+
