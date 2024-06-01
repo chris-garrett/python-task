@@ -1,0 +1,78 @@
+#!/bin/bash
+
+# Function to display usage information
+usage() {
+    echo "Usage: $0 [-e|--example] <destdir>"
+    echo "  -e, --example    If supplied, copy examples directory to destdir"
+    exit 1
+}
+
+# Ensure at least one positional argument is provided
+if [ "$#" -lt 1 ]; then
+    usage
+fi
+
+# Initialize variables
+EXAMPLE_FLAG=false
+DESTDIR=""
+
+# Parse the arguments
+while [[ $# -gt 0 ]]
+do
+    case "$1" in
+        -e|--example)
+            EXAMPLE_FLAG=true
+            shift
+            ;;
+        -*|--*)
+            usage
+            ;;
+        *)
+            DESTDIR="$1"
+            shift
+            ;;
+    esac
+done
+
+# Check if DESTDIR is provided
+if [ -z "$DESTDIR" ]; then
+    usage
+fi
+
+SRCSCR="$(realpath $0)"
+SRCDIR="$(dirname $SRCSCR)"
+SOURCE_FILE1="${SRCDIR}/__tasklib__.py"
+SOURCE_FILE2="${SRCDIR}/task"
+EXAMPLES_DIR="${SRCDIR}/examples/compose"
+DEST_EXAMPLE_DIR="${DESTDIR}/example"
+
+# Copy the source files/directories to the destination
+mkdir -p "$DESTDIR"
+if [ -f "$SOURCE_FILE1" ]; then
+    cp "$SOURCE_FILE1" "$DESTDIR"
+else
+    echo "Source file $SOURCE_FILE1 does not exist!"
+    exit 1
+fi
+
+if [ -f "$SOURCE_FILE2" ]; then
+    cp "$SOURCE_FILE2" "$DESTDIR"
+else
+    echo "Source file $SOURCE_FILE2 does not exist!"
+    exit 1
+fi
+
+# If the example flag is set, copy the examples directory
+if $EXAMPLE_FLAG; then
+    if [ -d "$EXAMPLES_DIR" ]; then
+        mkdir -p "$DEST_EXAMPLE_DIR"
+        echo 'cp -R "$EXAMPLES_DIR" "$DEST_EXAMPLE_DIR"'
+        cp $EXAMPLES_DIR/* $DEST_EXAMPLE_DIR
+    else
+        echo "Examples directory $EXAMPLES_DIR does not exist!"
+        exit 1
+    fi
+fi
+
+echo "Files have been successfully copied to $DESTDIR"
+
