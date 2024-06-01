@@ -4,7 +4,7 @@ from __tasklib__ import TaskContext, TaskBuilder
 
 def _prefix(ctx: TaskContext):
     compose_file = os.path.join(ctx.project_dir, "docker-compose.yml")
-    return f"docker-compose -f {compose_file}"
+    return f"docker compose -f {compose_file}"
 
 
 def _up(ctx: TaskContext):
@@ -29,8 +29,8 @@ def _restart(ctx: TaskContext):
 
 
 def configure(builder: TaskBuilder):
-    module_name = "compose"
-    builder.add_task(module_name, f"{module_name}:up", _up)
-    builder.add_task(module_name, f"{module_name}:down", _down)
-    builder.add_task(module_name, f"{module_name}:log", _logs)
-    builder.add_task(module_name, f"{module_name}:restart", _restart)
+    module_name = "datalake"
+    builder.add_task(module_name, "up", _up)
+    builder.add_task(module_name, "down", _down)
+    builder.add_task(module_name, "log", _logs)
+    builder.add_task(module_name, "restart", _restart)

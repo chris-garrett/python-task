@@ -161,6 +161,8 @@ def exec(
             input=input,
         )
     except Exception as ex:
+        if isinstance(logger, Logger):
+            logger.exception("Error executing: [%s]", " ".join(args))
         return CompletedProcess(args=args, returncode=1, stdout="", stderr=str(ex))
 
 
