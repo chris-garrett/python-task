@@ -2,6 +2,23 @@
 # https://github.com/chris-garrett/python-task #
 ################################################
 #
+# Jul 27 2024
+# * chore: tease apart loading .env file from applying it to os.environ so that
+#          tasks can consume .env files.
+#          examples:
+#              from __tasklib__ import load_env, load_dotenv
+#              def some_task(ctx: TaskContext):
+#                  env_dict = load_env(".env")
+#                  load_dotenv(".env")
+#
+# * fix:   use int or CompeltedProcess.returncode from tasks to set the exit code.
+#          examples:
+#              def some_task(ctx: TaskContext):
+#                  return ctx.exec("ls")
+#              def some_task(ctx: TaskContext):
+#                  return 0
+#
+#
 # May 11 2024
 # * feat: added support for task arguments. you can now:
 #         `./task hello[arg1=value1,arg2=2.0]`
@@ -45,18 +62,13 @@
 # * add the abililty to call depenencies with arguments.
 # * add support for file depenencies. see go-task for inspiration: https://taskfile.dev/usage/#prevent-unnecessary-work
 
-import os
-import sys
+import argparse
 import glob
-import shlex
-import typing
 import importlib.machinery
 import inspect
 import logging
 import os
 import platform
-from logging import Logger
-import argparse
 import shlex
 import subprocess
 import sys
@@ -64,12 +76,49 @@ import typing
 from dataclasses import dataclass, field
 from logging import Logger
 from subprocess import CompletedProcess
-from dataclasses import dataclass
-from typing import NamedTuple, Callable, List, Protocol, runtime_checkable
-import importlib.machinery
-import inspect
 from typing import (Any, Callable, Dict, List, NamedTuple, Protocol,
                     runtime_checkable)
+
+
+def load_env(filename=".env", expand_vars=True):
+    """
+    Loads dictionary from a .env file and returns the dictionary.
+
+    Args:
+    - filename (str, optional): The name of the .env file to load. Defaults to ".env".
+    - override (bool, optional): If True, existing environment variables will be overwritten
+      by those in the .env file. Defaults to False.
+
+    Returns:
+    dict
+    """
+    env = {}
+
+    if not os.path.exists(filename):
+        return env
+
+    with open(filename) as f:
+        for line in f:
+            line = line.strip()
+
+            # skip comments and empty lines
+            if line.startswith("#") or "=" not in line:
+                continue
+
+            k, v = line.split("=", 1)
+            k = k.strip()
+
+            # dont set null values
+            if v is not None:
+                env[k] = v.strip()
+
+    if expand_vars:
+        # expand any env vars
+        for k, v in os.environ.items():
+            if v.startswith("$"):
+                env[k] = os.path.expandvars(v)
+
+    return env
 
 
 def load_dotenv(filename=".env", override=False, expand_vars=True):
@@ -84,32 +133,13 @@ def load_dotenv(filename=".env", override=False, expand_vars=True):
     Returns:
     None
     """
-    if not os.path.exists(filename):
-        return
-    with open(filename) as f:
-        for line in f:
-            line = line.strip()
-
-            # skip comments and empty lines
-            if line.startswith("#") or "=" not in line:
-                continue
-
-            k, v = line.split("=", 1)
-            k = k.strip()
-
-            # dont override existing env vars unless explicitly told to
-            if k in os.environ and not override:
-                continue
-
-            # dont set null values
-            if v is not None:
-                os.environ[k] = v.strip()
-
-    if expand_vars:
-        # expand any env vars
-        for k, v in os.environ.items():
-            if v.startswith("$"):
-                os.environ[k] = os.path.expandvars(v)
+    for (
+        k,
+        v,
+    ) in load_env(filename, expand_vars).items():
+        if k in os.environ and not override:
+            continue
+        os.environ[k] = v
 
 
 def trace(self, message, *args, **kws):
@@ -141,7 +171,13 @@ class SystemContext(NamedTuple):
 
 
 def exec(
-    cmd: str, cwd: str = None, logger: Logger = None, venv_dir: str = None, capture: bool = False, input: str = None
+    cmd: str,
+    cwd: str = None,
+    logger: Logger = None,
+    venv_dir: str = None,
+    capture: bool = False,
+    input: str = None,
+    env: Dict[str, str] = None,
 ) -> CompletedProcess[str]:
     args = [arg.strip() for arg in shlex.split(cmd.strip())]
     if isinstance(logger, Logger) and not capture:
@@ -151,14 +187,17 @@ def exec(
             logger.debug("Executing: [%s]", " ".join(args))
 
     try:
+        if env:
+            env = {**os.environ.copy(), **env}
+
         return subprocess.run(
             args,
             check=False,
             text=True,
             cwd=cwd,
-            env=_build_env(os.environ, venv_dir) if venv_dir else os.environ,
             capture_output=capture,
             input=input,
+            env=env,
         )
     except Exception as ex:
         if isinstance(logger, Logger):
@@ -175,9 +214,15 @@ class TaskContext(ExecProtocol):
     args: Dict[str, Any] = field(default_factory=dict)
 
     def exec(
-        self, cmd: str, cwd: str = None, venv_dir: str = None, capture: bool = False, input: str = None
+        self,
+        cmd: str,
+        cwd: str = None,
+        venv_dir: str = None,
+        capture: bool = False,
+        input: str = None,
+        env: Dict[str, str] = None,
     ) -> CompletedProcess[str]:
-        return exec(cmd, cwd, self.log, venv_dir, capture, input)
+        return exec(cmd, cwd, self.log, venv_dir, capture, input, env)
 
 
 class TaskFileDefinition(NamedTuple):
@@ -203,7 +248,9 @@ class TaskBuilder(object):
     def use_python(self, python_exe):
         self.python_exe = python_exe
 
-    def add_task(self, module: str, name: str, func: callable, deps: List[str] = []) -> None:
+    def add_task(
+        self, module: str, name: str, func: callable, deps: List[str] = []
+    ) -> None:
         """
         Add a task to the list of parsers.
 
@@ -216,35 +263,6 @@ class TaskBuilder(object):
         if not isinstance(deps, list):
             raise TypeError(f"deps must be a list, got {type(deps)}")
         self.parsers.append((module, name, func, deps))
-
-
-def _build_env(env, venv_dir):
-    """
-    Replaces an old virtual env dir from path with a project
-    level virtual env dir
-    """
-    old_env = env.copy()
-
-    if "VIRTUAL_ENV" in old_env:
-        old_venv = f"{old_env['VIRTUAL_ENV']}/bin:"
-        # remove the old virtualenv path
-        old_path = old_env["PATH"][len(old_venv):]  # noqa
-    else:
-        old_path = old_env["PATH"]
-
-    # remove pythopath if it exists
-    if "PYTHONHOME" in old_env:
-        del old_env["PYTHONHOME"]
-
-    new_venv = f"{venv_dir}/bin"
-
-    # replace it with project virt env dir
-    old_env["PATH"] = f"{new_venv}:{old_path}"
-
-    # replace virt env
-    old_env["VIRTUAL_ENV"] = new_venv
-
-    return old_env
 
 
 def _ensure_venv(ctx: TaskContext):
@@ -262,7 +280,12 @@ def _load_tasks(task: TaskFileDefinition) -> typing.Dict[str, TaskDefinition]:
     task.func(builder)
     for module, name, func, deps in builder.parsers:
         tasks[name] = TaskDefinition(
-            module=module, name=name, func=func, dir=task.dir, filename=task.filename, deps=deps
+            module=module,
+            name=name,
+            func=func,
+            dir=task.dir,
+            filename=task.filename,
+            deps=deps,
         )
     return tasks
 
@@ -278,14 +301,16 @@ def _load_task_definitions(task_files) -> List[TaskFileDefinition]:
         module = loader.load_module()
         if not hasattr(module, "configure"):
             logger.trace(
-                f"load task definition: {task_file}: no configure() found, skipping {task_file}")
+                f"load task definition: {task_file}: no configure() found, skipping {task_file}"
+            )
             continue
 
         func = getattr(module, "configure")
         parameters = inspect.signature(func).parameters
         if "builder" not in parameters:
             logger.trace(
-                f"load task definition: {task_file}: no configure(builder) found, skipping {task_file}")
+                f"load task definition: {task_file}: no configure(builder) found, skipping {task_file}"
+            )
             continue
 
         logger.trace(f"load task definition: {task_file}: loaded successfully")
@@ -354,8 +379,12 @@ def _build_task_context(task: TaskDefinition) -> TaskContext:
 def _print_help(available_tasks: List[str]):
     # do a lazy sort to put tasks with no colons first
     formatted_tasks = "".join(
-        [f"  {t}\n" for t in sorted(available_tasks, key=lambda x: (
-            0 if x.count(":") == 0 else 1, x))]
+        [
+            f"  {t}\n"
+            for t in sorted(
+                available_tasks, key=lambda x: (0 if x.count(":") == 0 else 1, x)
+            )
+        ]
     )
     print(
         f"""usage: task [-h] [task ...]
@@ -372,11 +401,12 @@ options:
 
 def _resolve_deps(tasks_to_resolve, tasks):
     # Convert list of tasks to a dictionary for easy access
-    task_dict = {list(task.keys())[0]: list(
-        task.values())[0] for task in tasks}
+    task_dict = {list(task.keys())[0]: list(task.values())[0] for task in tasks}
 
     resolved = []  # List to store the resolved order of tasks
-    visited = set()  # Set to keep track of visited tasks to detect circular dependencies
+    visited = (
+        set()
+    )  # Set to keep track of visited tasks to detect circular dependencies
 
     def dfs(task):
         if task in resolved:  # If already resolved, no need to proceed
@@ -412,7 +442,7 @@ def _parse_task_args(task_args: str) -> Dict[str, Any]:
     A dictionary of argument names and values.
     """
     args = {}
-    args_str = task_args[task_args.find("[") + 1: task_args.rfind("]")]
+    args_str = task_args[task_args.find("[") + 1 : task_args.rfind("]")]
     for arg in args_str.split(","):
         if len(arg) > 0:
             key, value = arg.split("=")
@@ -462,7 +492,6 @@ def _process_tasks():
         _print_help(tasks.keys())
         return
 
-
     # validate tasks
     for task_name in task_names:
         if task_name not in tasks:
@@ -483,15 +512,21 @@ def _process_tasks():
     resolved_tasks = _resolve_deps(task_names, tasks_with_deps)
 
     # runtime
+    ret_code = 0
     for task_name in resolved_tasks:
         if task_name in tasks:
             task = tasks[task_name]
             try:
                 task_context = _build_task_context(task)
                 task_context.args = tasks_with_args.get(task_name, {})
-                task.func(task_context)
+                ret = task.func(task_context)
+                if isinstance(ret, CompletedProcess):
+                    ret_code = ret.returncode
+                elif isinstance(ret, int):
+                    ret_code = ret
             except KeyboardInterrupt:
                 pass
+    sys.exit(ret_code)
 
 
 if __name__ == "__main__":
@@ -504,8 +539,9 @@ if __name__ == "__main__":
     ]
 
     for env in env_files:
-        load_dotenv(os.path.abspath(os.path.join(
-            os.path.dirname(__file__), env["file"])), env["override"])
+        load_dotenv(
+            os.path.abspath(os.path.join(os.path.dirname(__file__), env["file"])),
+            env["override"],
+        )
 
     _process_tasks()
-
