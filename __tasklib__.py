@@ -2,6 +2,17 @@
 # https://github.com/chris-garrett/python-task #
 ################################################
 #
+# Jul 30 2024
+# * fix: regression in expanding variables
+# * feat: added -q / --quiet option to disable logging. useful for capturing output.
+# * feat: add support for key only task arguments. you can now:
+#         `./task hello[big,world=yes]`
+#
+#         def _hello(ctx: TaskContext):
+#             # ctx.args = {'big': None, 'world': 'yes'}
+#             if "big" in ctx.args:
+#                 ctx.log.info("Big is set")
+#
 # Jul 27 2024
 # * chore: tease apart loading .env file from applying it to os.environ so that
 #          tasks can consume .env files.
@@ -114,7 +125,7 @@ def load_env(filename=".env", expand_vars=True):
 
     if expand_vars:
         # expand any env vars
-        for k, v in os.environ.items():
+        for k, v in env.items():
             if v.startswith("$"):
                 env[k] = os.path.expandvars(v)
 
@@ -150,6 +161,9 @@ def trace(self, message, *args, **kws):
 TRACE_LEVEL = 5
 logging.addLevelName(TRACE_LEVEL, "TRACE")
 logging.Logger.trace = trace
+
+QUIET_LEVEL = 999
+logging.addLevelName(QUIET_LEVEL, "QUIET")
 
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
@@ -445,20 +459,27 @@ def _parse_task_args(task_args: str) -> Dict[str, Any]:
     args_str = task_args[task_args.find("[") + 1 : task_args.rfind("]")]
     for arg in args_str.split(","):
         if len(arg) > 0:
-            key, value = arg.split("=")
-            args[key.strip()] = value.strip()
+            if "=" in arg:
+                key, value = arg.split("=")
+                args[key.strip()] = value.strip()
+            else:
+                args[arg.strip()] = None
 
     return args
 
 
 def _process_tasks():
-    logger.info("Processing tasks")
 
     # need to boostrap this arg so that we can enable debug logging at
     # configure time
     raw_args = sys.argv[1:]
     if "-v" in raw_args or "--verbose" in raw_args:
         logger.setLevel(logging.DEBUG)
+
+    if "-q" in raw_args or "--quiet" in raw_args:
+        logger.setLevel(QUIET_LEVEL)
+
+    logger.info("Processing tasks")
 
     task_files = _find_task_files()
     task_defs = _load_task_definitions(task_files)
@@ -469,6 +490,7 @@ def _process_tasks():
     parser.add_argument("tasks", nargs="*")
     parser.add_argument("-h", "--help", action="store_true")
     parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("-q", "--quiet", action="store_true")
 
     # configure tasks
     for task_def in task_defs:
