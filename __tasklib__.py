@@ -2,6 +2,9 @@
 # https://github.com/chris-garrett/python-task #
 ################################################
 #
+# Jan 13 2024
+# * fix: ctx.root_path should be current working dir
+#
 # Dec 14 2024
 # * fix: strip quotes from values in .env files
 #
@@ -391,7 +394,7 @@ def _build_task_context(task: TaskDefinition) -> TaskContext:
     Builds a context object for a task.
     """
     return TaskContext(
-        root_dir=os.path.abspath(os.path.dirname(__file__)),
+        root_dir=os.path.abspath(os.curdir),
         project_dir=task.dir,
         log=logging.getLogger(task.module),
         system=_build_system_context(),
