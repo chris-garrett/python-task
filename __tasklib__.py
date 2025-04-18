@@ -2,6 +2,13 @@
 # https://github.com/chris-garrett/python-task #
 ################################################
 #
+# Feb 12 2025
+# * feat: allow 'cmd' to be an array so that more complicated commands can be executed.
+#
+#
+# Feb 02 2025
+# * feat: add text argument to exec() for when you need to work with binary data
+#
 # Jan 13 2024
 # * fix: ctx.root_path should be current working dir
 #
@@ -192,6 +199,7 @@ class ExecProtocol(Protocol):
 class SystemContext(NamedTuple):
     platform: str  # Linux, Darwin, Windows
     arch: str  # x86_64, arm64
+    arch_alt: str  # x86_64 becomes amd64
     distro: str  # Debian, Arch, RHEL
 
 
@@ -203,8 +211,13 @@ def exec(
     capture: bool = False,
     input: str = None,
     env: Dict[str, str] = None,
+    text: bool = True,
 ) -> CompletedProcess[str]:
-    args = [arg.strip() for arg in shlex.split(cmd.strip())]
+    args = (
+        cmd
+        if isinstance(cmd, list)
+        else [arg.strip() for arg in shlex.split(cmd.strip())]
+    )
     if isinstance(logger, Logger) and not capture:
         if cwd:
             logger.debug("Executing: [%s] Cwd: [%s]", " ".join(args), cwd)
@@ -218,7 +231,7 @@ def exec(
         return subprocess.run(
             args,
             check=False,
-            text=True,
+            text=text,
             cwd=cwd,
             capture_output=capture,
             input=input,
@@ -246,8 +259,18 @@ class TaskContext(ExecProtocol):
         capture: bool = False,
         input: str = None,
         env: Dict[str, str] = None,
+        text: bool = True,
     ) -> CompletedProcess[str]:
-        return exec(cmd, cwd, self.log, venv_dir, capture, input, env)
+        return exec(
+            cmd=cmd,
+            cwd=cwd,
+            logger=self.log,
+            venv_dir=venv_dir,
+            capture=capture,
+            input=input,
+            env=env,
+            text=text,
+        )
 
 
 class TaskFileDefinition(NamedTuple):
@@ -382,9 +405,16 @@ def _build_system_context() -> SystemContext:
         with open("/etc/os-release") as f:
             distro = _build_system_distro(f.read())
 
+    arch = platform.machine().lower()
+    if arch == "x86_64":
+        arch_alt = "amd64"
+    else:
+        arch_alt = arch
+
     return SystemContext(
         platform=platform.system().lower(),
-        arch=platform.machine().lower(),
+        arch=arch,
+        arch_alt=arch_alt,
         distro=distro.lower(),
     )
 
